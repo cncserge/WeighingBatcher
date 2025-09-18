@@ -1,0 +1,16 @@
+{
+    "favorites.resources": [
+        {
+            "filePath": "src\\main.cpp",
+            "group": "Default"
+        },
+        {
+            "filePath": "src\\task_read_weigh.cpp",
+            "group": "Default"
+        },
+        {
+            "filePath": "src\\global.h",
+            "group": "Default"
+        }
+    ]
+}

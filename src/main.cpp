@@ -1,156 +1,64 @@
-#include "TM16xxDisplay.h"
 #include <Arduino.h>
-#include <TM16xxIC.h>
+#include <EEPROM.h>
+#include <global.h>
 
-uint8_t point_mask = 0b00000100;  // если здесь 1 значит точка включена
-uint8_t digit[12] = {
-    0b11011011,  // 0
-    0b00010001,  // 1
-    0b10111010,  // 2
-    0b10110011,  // 3
-    0b01110001,  // 4
-    0b11100011,  // 5
-    0b11101011,  // 6
-    0b10010001,  // 7
-    0b11111011,  // 8
-    0b11110011,  // 9
-    0b00000000,  // off
-    0b00100000   // '-'
+const int pin_out = 17;
+void      task_read_weigh(void* pvParameters);
+void      task_indication(void* pvParameters);
+void      taskOta(void* pvParameter);
+
+const int pin_btn_z = 4;   // ноль кнопка
+const int pin_btn_o = 19;  // од кнопка
+const int pin_btn_t = 18;  // тара кнопка
+
+enum {
+    set_calib,
+    work,
 };
 
-int32_t hx71708_read(int pinDOUT, int pinSCK, uint8_t extra, uint32_t timeout_ms);
+int  mode = -1;
+void setup() {
+    pinMode(pin_btn_z, INPUT_PULLUP);
+    pinMode(pin_btn_o, INPUT_PULLUP);
+    pinMode(pin_btn_t, INPUT_PULLUP);
+    EEPROM.begin(512);
+    if (!EEPROM.read(0) != 7) {
+        calib.offset = 0;
+        calib.scale = 1.0;
+        EEPROM.write(0, 7);
+        saveCalib();
+    }
+    readCalib();
+    Serial.begin(115200);
+    pinMode(pin_out, OUTPUT);
+    digitalWrite(pin_out, LOW);
 
-TM16xxIC      module(IC_TM1629A, 33, 32, 25);
-TM16xxDisplay display(&module, 8);
+    xTaskCreatePinnedToCore(task_read_weigh, "task_read_weigh", 4000, NULL, 1, NULL, 1);
+    xTaskCreatePinnedToCore(task_indication, "task_indication", 4000, NULL, 1, NULL, 1);
+    xTaskCreatePinnedToCore(taskOta, "taskOta", 8000, NULL, 1, NULL, 0);
+    digitalRead(pin_btn_o) == LOW ? mode = set_calib : mode = work;
+}
 
-void printDisplay(int32_t v, int pointPos = -1) {
-    uint8_t pat[6];
-    for (int i = 0; i < 6; ++i)
-        pat[i] = digit[10];  // off
-
-    // знак и модуль
-    bool     neg = (v < 0);
-    int64_t  vv = v;
-    uint32_t val = neg ? uint32_t(-vv) : uint32_t(vv);
-
-    // цифры в диапазоне индикаторов j=3..7
-    int right = 5;  // позиция внутри массива pat[] (0..5)
-    int digits_cnt = 0;
-
-    if (val == 0) {
-        pat[right] = digit[0];
-        digits_cnt = 1;
-    } else {
-        while (val && right >= 1) {  // не выходим за j=2 (там знак/пусто)
-            pat[right] = digit[val % 10];
-            val /= 10;
-            --right;
-            ++digits_cnt;
+void loop() {
+    if (weigh_t msg; xQueueReceive(queue_weigh, &msg, pdMS_TO_TICKS(1000))) {
+        if (mode == set_calib) {
+            if (!digitalRead(pin_btn_z)) {
+                calib.offset = msg.raw;
+            }
+            if(digitalRead(pin_btn_t)){
+                calib.scale = 5000 / 
+            }
+            printDisplay(msg.val);
         }
     }
 
-    // минус в j=2
-    if (neg) pat[0] = digit[11];
-
-    // точка как отступ от правого края числа
-    if (pointPos >= 0) {
-        int dp_idx = 5 - (pointPos - 1);  // pointPos=1 → крайняя справа
-        if (dp_idx >= 1 && dp_idx <= 5) pat[dp_idx] |= point_mask;
-    }
-
-    // вывод: индикатор j = 2..7
-    for (int i = 0; i < 6; ++i) {
-        module.setSegments(pat[i], i + 2);
-    }
-}
-
-void printLed(int n = -1) {
-    module.setSegments(0, 0);
-    module.setSegments(0, 1);
-    if (n == 1)
-        module.setSegments(0b00000010, 0);
-    else if (n == 2)
-        module.setSegments(0b00000001, 0);
-    else if (n == 3)
-        module.setSegments(0b00001000, 1);
-    else if (n == 4)
-        module.setSegments(0b00000100, 1);
-    else if (n == 5)
-        module.setSegments(0b00000010, 1);
-    else if (n == 6)
-        module.setSegments(0b00000001, 1);
-}
-
-void setup() {
-    for (int i = 0; i < 10; i++) {
-        printLed(i);
-        delay(1000);
-    }
-    // display.print(23);
-    Serial.begin(115200);
-}
-
-int  k = 0;
-int  d = 0;
-void loop() {
-    // int i = (1 << d++);
-    // module.setSegments(i, k);
-    // if(d > 8){
-    //     d = 0;
-    //     module.setSegments(0, k);
-    //     k++;
-    // }
-    // Serial.printf("k=%d i=%02X\n", k, i);
-    // display.setDisplayToDecNumber(i++, 0);
-    delay(100);
-
-    int32_t v = hx71708_read(27, 26, 3, 300);
-    if (v == INT32_MIN) {
-        Serial.println("Timeout");
-    } else {
-        printDisplay(v);
-        Serial.println(v);
-    }
     delay(1);
 }
 
-// extra = 1..4: +1=>10Hz, +2=>20Hz, +3=>80Hz, +4=>320Hz
-// Возвращает 32-бит со знаком (sign-extend 24->32). При таймауте — 0x80000000.
-int32_t hx71708_read(int pinDOUT, int pinSCK, uint8_t extra, uint32_t timeout_ms) {
-    if (extra < 1 || extra > 4) extra = 1;
-    static bool init = false;
-    if (!init) {
-        pinMode(pinSCK, OUTPUT);
-        pinMode(pinDOUT, INPUT);
-    }
-    digitalWrite(pinSCK, LOW);
-    init = true;
-
-    // Ждём готовности: DOUT должен упасть в 0
-    uint32_t t0 = millis();
-    while (digitalRead(pinDOUT) == HIGH) {
-        if (millis() - t0 > timeout_ms) return INT32_MIN;  // таймаут
-    }
-
-    // Чтение 24 бит MSB->LSB
-    uint32_t v = 0;
-    for (int i = 0; i < 24; ++i) {
-        digitalWrite(pinSCK, HIGH);
-        delayMicroseconds(1);  // T2≈0.1us, T3>=0.2us, держим ~1us
-        v = (v << 1) | (uint32_t)digitalRead(pinDOUT);
-        digitalWrite(pinSCK, LOW);
-        delayMicroseconds(1);  // T4>=0.2us
-    }
-
-    // Доп. импульсы для выбора частоты следующего цикла
-    for (uint8_t i = 0; i < extra; ++i) {
-        digitalWrite(pinSCK, HIGH);
-        delayMicroseconds(1);
-        digitalWrite(pinSCK, LOW);
-        delayMicroseconds(1);
-    }
-
-    // Знаковое расширение 24-битного 2's complement в int32_t
-    if (v & 0x800000UL) v |= 0xFF000000UL;
-    return (int32_t)v;
+void saveCalib(void) {
+    EEPROM.put(10, calib);
+    EEPROM.commit();
+}
+void readCalib(void) {
+    EEPROM.get(10, calib);
 }
