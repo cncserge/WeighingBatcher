@@ -6,10 +6,22 @@ int32_t hx71708_read(int pinDOUT, int pinSCK, uint8_t extra, uint32_t timeout_ms
 QueueHandle_t queue_weigh = xQueueCreate(1, sizeof(weigh_t));
 calib_t       calib;
 
+
+
 void task_read_weigh(void* pvParameters) {
+    int32_t sum = 0;
+    int32_t old = 0;
     for (;;) {
         weigh_t w;
-        w.raw = hx71708_read(27, 26, 3, 300);
+        sum = 0;
+        for(int i = 0; i < 2; ++i){
+            sum += hx71708_read(27, 26, 3, 300);
+        }
+        if(abs(old - (sum / 2)) > 100){
+            continue;
+        }
+        old = sum / 2;
+        w.raw = sum / 2;
         w.val = (int32_t)((w.raw - calib.offset) * calib.scale);
         xQueueOverwrite(queue_weigh, &w);
         vTaskDelay(pdMS_TO_TICKS(3));
