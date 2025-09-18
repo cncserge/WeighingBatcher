@@ -16,8 +16,11 @@ const int pin_btn_t = 18;  // тара кнопка
 enum {
     set_calib,
     work,
+    set_dose,
+    set_const,
+    set_tare
 };
-enum{
+enum {
     led_calib = 1,
     led_set_zero,
     led_out,
@@ -41,10 +44,13 @@ void setup() {
             Serial.println("Failed to initialize EEPROM");
         }
     }
-    if (EEPROM.read(0) != 7) {
+    if (EEPROM.read(0) != 17) {
         calib.offset = 0;
         calib.scale = 1.0;
-        EEPROM.write(0, 7);
+        settings.weigh_min = 100;
+        settings.weigh_dose = 900;
+        settings.weigh_const = 50;
+        EEPROM.write(0, 17);
         EEPROM.commit();
         saveCalib();
         saveSettings();
@@ -58,10 +64,7 @@ void setup() {
     xTaskCreatePinnedToCore(task_read_weigh, "task_read_weigh", 4000, NULL, 1, NULL, 1);
     xTaskCreatePinnedToCore(task_indication, "task_indication", 4000, NULL, 1, NULL, 1);
     digitalRead(pin_btn_o) == LOW ? mode = set_calib : mode = work;
-
 }
-
-
 
 void loop() {
     if (weigh_t msg; xQueueReceive(queue_weigh, &msg, pdMS_TO_TICKS(1000))) {
@@ -85,7 +88,7 @@ void loop() {
             {
                 static uint32_t time_out = 0;
                 if (digitalRead(pin_btn_z) == LOW) {
-                    if(millis() - time_out > 2000){
+                    if (millis() - time_out > 2000) {
                         calib.offset = msg.raw;
                         saveCalib();
                         setLed(led_set_zero, true);
@@ -93,12 +96,101 @@ void loop() {
                         setLed(led_set_zero, false);
                         time_out = millis();
                     }
-                }
-                else{
+                } else {
                     time_out = millis();
                 }
             }
         }
+    }
+
+    {
+        static uint32_t time_out = 0;
+        if (digitalRead(pin_btn_t) == LOW) {
+            if (millis() - time_out > 2000) {
+                time_out = millis();
+                if (mode == work) {
+                    mode = set_dose;
+                    setLed(led_set_dose, true);
+                    delay(200);
+                } else if (mode == set_dose) {
+                    mode = set_const;
+                    setLed(led_set_dose, false);
+                    delay(200);
+                    setLed(led_set_const, true);
+                    delay(200);
+                } else if (mode == set_const) {
+                    mode = set_tare;
+                    setLed(led_set_const, false);
+                    delay(200);
+                    setLed(led_set_tare, true);
+                    delay(200);
+                } else if (mode == set_tare) {
+                    mode = work;
+                    setLed(led_set_tare, false);
+                    delay(200);
+                }
+            }
+        } else {
+            time_out = millis();
+        }
+    }
+
+    if (mode == set_dose) {
+        printDisplay(settings.weigh_dose);
+        if (!digitalRead(pin_btn_o)) {
+            if (settings.weigh_dose > 100) {
+                settings.weigh_dose -= 1;
+                saveSettings();
+                delay(100);
+            }
+        }
+        if (!digitalRead(pin_btn_z)) {
+            if (settings.weigh_dose < 5000) {
+                settings.weigh_dose += 1;
+                saveSettings();
+                delay(100);
+            }
+        }
+    }
+    if (mode == set_const) {
+        printDisplay(settings.weigh_const);
+        if (!digitalRead(pin_btn_o)) {
+            if (settings.weigh_const > 0) {
+                settings.weigh_const -= 1;
+                saveSettings();
+                delay(100);
+            }
+        }
+        if (!digitalRead(pin_btn_z)) {
+            if (settings.weigh_const < 500) {
+                settings.weigh_const += 1;
+                saveSettings();
+                delay(100);
+            }
+        }
+    }
+    if (mode == set_tare) {
+        printDisplay(settings.weigh_min);
+        if (!digitalRead(pin_btn_o)) {
+            if (settings.weigh_min > 0) {
+                settings.weigh_min -= 1;
+                saveSettings();
+                delay(100);
+            }
+        }
+        if (!digitalRead(pin_btn_z)) {
+            if (settings.weigh_min < 1000) {
+                settings.weigh_min += 1;
+                saveSettings();
+                delay(100);
+            }
+        }
+    }
+
+    if (mode == work) {
+
+    } else {
+        digitalWrite(pin_out, LOW);
     }
 
     if (mode == set_calib) {
@@ -112,7 +204,11 @@ void loop() {
     }
 
     if (mode == work) {
-        setLed(led_out, digitalRead(pin_out));
+        static int old = -1;
+        if (old != digitalRead((pin_out))) {
+            old = digitalRead((pin_out));
+            setLed(led_out, old);
+        }
     }
 
     delay(1);
