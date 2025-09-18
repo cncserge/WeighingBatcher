@@ -34,10 +34,10 @@ void printDisplay(int32_t v, int pointPos) {
 //------------------------------------------------------------------------
 void task_indication(void* pvParameters) {
     for (;;) {
-        if (set_led_t msg; xQueueReceive(queue_set_led, &msg, pdMS_TO_TICKS(100))) {
+        if (set_led_t msg; xQueueReceive(queue_set_led, &msg, pdMS_TO_TICKS(50))) {
             setLedStatic(msg.pos, msg.on);
         }
-        if (set_display_t msg; xQueueReceive(queue_set_display, &msg, pdMS_TO_TICKS(100))) {
+        if (set_display_t msg; xQueueReceive(queue_set_display, &msg, pdMS_TO_TICKS(50))) {
             printDisplayStatic(msg.val, msg.pointPos);
         }
     }
@@ -116,6 +116,8 @@ void setLedStatic(uint8_t led, bool on) {
     } else if (led == 6) {
         on ? (led_1 |= 0b00000001) : (led_1 &= 0b11111110);
     }
+    module.setSegments(led_0, 0);
+    module.setSegments(led_1, 1);
 }
 
 void printLed(int n = -1) {

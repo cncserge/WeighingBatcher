@@ -18,18 +18,25 @@ enum {
 
 int  mode = -1;
 void setup() {
+    Serial.begin(115200);
     pinMode(pin_btn_z, INPUT_PULLUP);
     pinMode(pin_btn_o, INPUT_PULLUP);
     pinMode(pin_btn_t, INPUT_PULLUP);
-    EEPROM.begin(512);
-    if (!EEPROM.read(0) != 7) {
+    if (!EEPROM.begin(512)) {
+        while (1) {
+            delay(1000);
+            Serial.println("Failed to initialize EEPROM");
+        }
+    }
+    if (EEPROM.read(0) != 7) {
         calib.offset = 0;
         calib.scale = 1.0;
         EEPROM.write(0, 7);
+        EEPROM.commit();
         saveCalib();
     }
     readCalib();
-    Serial.begin(115200);
+
     pinMode(pin_out, OUTPUT);
     digitalWrite(pin_out, LOW);
 
@@ -42,13 +49,29 @@ void setup() {
 void loop() {
     if (weigh_t msg; xQueueReceive(queue_weigh, &msg, pdMS_TO_TICKS(1000))) {
         if (mode == set_calib) {
+            bool on_delay = false;
             if (!digitalRead(pin_btn_z)) {
+                on_delay = true;
                 calib.offset = msg.raw;
+                saveCalib();
             }
-            if(digitalRead(pin_btn_t)){
-                calib.scale = 5000 / 
+            if (!digitalRead(pin_btn_t)) {
+                on_delay = true;
+                calib.scale = 5000. / (msg.raw - calib.offset);
+                saveCalib();
             }
             printDisplay(msg.val);
+            if (on_delay) delay(1000);
+        }
+    }
+
+    if (mode == set_calib) {
+        static uint32_t time = 0;
+        static bool     en = false;
+        if (millis() - time >= 500) {
+            time = millis();
+            en = !en;
+            setLed(1, en);
         }
     }
 
@@ -56,9 +79,11 @@ void loop() {
 }
 
 void saveCalib(void) {
+    Serial.printf("Save calib: offset=%d scale=%.5f\n", calib.offset, calib.scale);
     EEPROM.put(10, calib);
     EEPROM.commit();
 }
 void readCalib(void) {
     EEPROM.get(10, calib);
+    Serial.printf("Read calib: offset=%d scale=%.5f\n", calib.offset, calib.scale);
 }
