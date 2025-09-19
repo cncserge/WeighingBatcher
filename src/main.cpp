@@ -100,7 +100,29 @@ void loop() {
                     time_out = millis();
                 }
             }
+
+            {
+                static int last_val = 0;
+                if (digitalRead(pin_btn_o) == LOW && last_val == HIGH) {
+                    if (digitalRead(pin_out) == LOW) {
+                        if (msg.val >= (settings.weigh_min - 20)) {
+                            digitalWrite(pin_out, HIGH);
+                        }
+                    }
+                }
+                last_val = digitalRead(pin_btn_o);
+            }
+            {
+                if (digitalRead(pin_out) == HIGH) {
+                    if (msg.val >= (settings.weigh_min + settings.weigh_dose - settings.weigh_const)) {
+                        digitalWrite(pin_out, LOW);
+                    }
+                }
+            }
         }
+    }
+    else{
+        digitalWrite(pin_out, LOW);
     }
 
     {
