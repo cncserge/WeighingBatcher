@@ -120,8 +120,7 @@ void loop() {
                 }
             }
         }
-    }
-    else{
+    } else {
         digitalWrite(pin_out, LOW);
     }
 
@@ -156,21 +155,32 @@ void loop() {
             time_out = millis();
         }
     }
-
-    if (mode == set_dose) {
-        printDisplay(settings.weigh_dose);
-        if (!digitalRead(pin_btn_o)) {
-            if (settings.weigh_dose > 100) {
-                settings.weigh_dose -= 1;
-                saveSettings();
-                delay(100);
+    {
+        static uint32_t timer_up = 100;
+        static uint32_t timer_dn = 100;
+        if (mode == set_dose) {
+            printDisplay(settings.weigh_dose);
+            if (!digitalRead(pin_btn_o)) {
+                if (settings.weigh_dose > 100) {
+                    settings.weigh_dose -= 1;
+                    saveSettings();
+                    delay(timer_dn);
+                    if(timer_dn > 10) timer_dn--;
+                }
             }
-        }
-        if (!digitalRead(pin_btn_z)) {
-            if (settings.weigh_dose < 5000) {
-                settings.weigh_dose += 1;
-                saveSettings();
-                delay(100);
+            else{
+                timer_dn = 100;
+            }
+            if (!digitalRead(pin_btn_z)) {
+                if (settings.weigh_dose < 5000) {
+                    settings.weigh_dose += 1;
+                    saveSettings();
+                    delay(timer_up);
+                    if(timer_up > 10) timer_up--;
+                }
+            }
+            else{
+                timer_up = 100;
             }
         }
     }
